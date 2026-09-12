@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AppSidebar, type Screen } from '@/components/app-sidebar'
 import { SetupScreen } from '@/components/setup-screen'
-import { InterviewScreen } from '@/components/interview-screen'
+import { InterviewScreen, type ChatMessage } from '@/components/interview-screen'
 import { FeedbackScreen } from '@/components/feedback-screen'
 import { AnimatedBackground } from '@/components/animated-background'
 import type { InterviewTypeId } from '@/lib/mock-data'
@@ -27,15 +27,23 @@ export default function MainPage() {
   const [screen, setScreen] = useState<Screen>('setup')
   const [sessionId, setSessionId] = useState(0)
   const [config, setConfig] = useState<InterviewConfig>(EMPTY_CONFIG)
+  const [transcript, setTranscript] = useState<ChatMessage[]>([])
 
   const handleStart = (next: InterviewConfig) => {
     setConfig(next)
+    setTranscript([])
     setSessionId((id) => id + 1)
     setScreen('interview')
   }
 
+  const handleFinish = (finalTranscript: ChatMessage[]) => {
+    setTranscript(finalTranscript)
+    setScreen('feedback')
+  }
+
   const handleRestart = () => {
     setConfig(EMPTY_CONFIG)
+    setTranscript([])
     setSessionId((id) => id + 1)
     setScreen('setup')
   }
@@ -75,7 +83,7 @@ export default function MainPage() {
               <InterviewScreen
                 key={sessionId}
                 config={config}
-                onFinish={() => setScreen('feedback')}
+                onFinish={handleFinish}
               />
             </motion.div>
           )}
@@ -88,7 +96,11 @@ export default function MainPage() {
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
             >
-              <FeedbackScreen config={config} onRestart={handleRestart} />
+              <FeedbackScreen
+                config={config}
+                transcript={transcript}
+                onRestart={handleRestart}
+              />
             </motion.div>
           )}
         </AnimatePresence>

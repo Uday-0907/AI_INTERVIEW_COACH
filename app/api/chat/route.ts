@@ -1,49 +1,36 @@
-import { NextResponse } from 'next/server'
-import { GoogleGenAI } from '@google/genai'
+import { NextRequest, NextResponse } from 'next/server'
+import { GoogleGenerativeAI } from '@google/genai'
 
-// Initialize the Gemini client using your environment API key
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' })
+export const runtime = 'nodejs'
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { messages, config, isOpeningQuestion } = await req.json()
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'GEMINI_API_KEY is missing in .env.local file' }, 
+        { status: 500 }
+      )
+    }
 
-    // Craft system instructions using the user's setup data
-    const { INTERVIEW_TYPES } = await import('@/lib/mock-data')
-    const selectedType = INTERVIEW_TYPES.find((t) => t.id === config?.typeId)
+    const body = await req.json()
+    const { messages, targetRole, mode, resumeText } = body
 
-    const systemPrompt = `
-      You are a professional hiring manager conducting a structured job interview.
-      - Target Role: ${config?.role || 'General Candidate'}
-      - Interview Type: ${selectedType?.label || config?.type || 'General'}
-      - Candidate Resume Context: ${config?.resume || 'No resume provided'}
+    const ai = new GoogleGenerativeAI(apiKey)
+    const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
-      Mode-specific focus:
-      ${selectedType?.guidance || 'Keep questions relevant to the target role and resume.'}
+    const systemPrompt = `You are a strict technical interviewer conducting a ${mode} interview for a ${targetRole} role.
+Candidate Resume Context: ${resumeText || 'None provided'}
+Keep questions direct, adaptive, and concise.`
 
-      Instructions:
-      - Ask ONE question at a time.
-      - Keep questions concise, conversational, and directly related to the role (${config?.role || 'the target role'}).
-      - Ground questions in the parsed resume when it is provided.
-      - If this is an opening question, welcome them briefly and ask an introductory question matching this interview type and their background.
-    `
+    const promptText = `${systemPrompt}\n\nConversation so far:\n${JSON.stringify(messages)}`
+    
+    const response = await model.generateContent(promptText)
+    const aiText = response.response.text()
 
-    const prompt = isOpeningQuestion
-      ? `${systemPrompt}\n\nTask: Generate the single opening question for this candidate.`
-      : `${systemPrompt}\n\nConversation history:\n${JSON.stringify(messages)}\n\nTask: Respond to the candidate and ask the next relevant follow-up question.`
-
-    // Request content from gemini-3.6-flash
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
-      contents: prompt,
-    })
-
-    return NextResponse.json({ text: response.text })
-  } catch (error) {
-    console.error('Gemini API Error:', error)
-    return NextResponse.json(
-      { error: 'Failed to generate interviewer response' },
-      { status: 500 }
-    )
+    return NextResponse.json({ text: aiText })
+  } catch (err: any) {
+    console.error('Chat API Error:', err)
+    return NextResponse.json({ error: err.message || 'Failed to generate AI response' }, { status: 500 })
   }
 }

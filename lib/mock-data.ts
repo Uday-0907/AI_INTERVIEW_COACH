@@ -1,33 +1,23 @@
 export interface EvaluationResult {
   overallScore: number
-  pace: {
-    wpm: number
-    status: 'Optimal' | 'Too Fast' | 'Too Slow'
-  }
-  fillerWords: {
-    count: number
-    words: { word: string; count: number }[]
-  }
-  starScores: {
+  technicalDepth: number
+  communicationClarity: number
+  fillerWordCount: number
+  fillerWordBreakdown: { word: string; count: number }[]
+  wordsPerMinute: number
+  toneDistribution: { tone: string; percentage: number }[]
+  starMetrics: {
     situation: number
     task: number
     action: number
     result: number
   }
-  questionFeedback: {
+  questionBreakdowns: {
     question: string
-    answer: string
-    feedback: string
+    candidateAnswer: string
+    idealAnswer: string
+    missingKeywords: string[]
     score: number
-  }[]
-  headlineMetrics: {
-    label: string
-    score: number
-    status: string
-  }[]
-  toneSegments: {
-    tone: string
-    percentage: number
   }[]
 }
 
@@ -106,7 +96,7 @@ export const INTERVIEW_TYPES: InterviewTypeOption[] = [
     emoji: '💻',
     label: 'Technical Interview',
     description:
-      'Programming, DSA, DBMS, OOP, SQL, or core engineering concepts.',
+      'Programming, DSA, DBMS, OOP, SQL, or core domain concepts.',
     guidance:
       'Ask technical questions covering programming, data structures and algorithms, DBMS, OOP, SQL, and core engineering concepts relevant to the target role. Probe for correctness, trade-offs, and depth of understanding.',
   },

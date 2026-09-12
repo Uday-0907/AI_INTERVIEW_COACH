@@ -2,13 +2,7 @@
 
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import {
-  FileText,
-  Upload,
-  Sparkles,
-  AlertCircle,
-  CheckCircle2,
-} from 'lucide-react'
+import { FileText, Upload, Sparkles, CircleAlert as AlertCircle, CircleCheck as CheckCircle2 } from 'lucide-react'
 import type { InterviewConfig } from '@/app/page'
 import { INTERVIEW_TYPES, ROLE_EXAMPLES } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
@@ -237,7 +231,7 @@ export function SetupScreen({
         disabled={!canStart}
         className="w-full rounded-xl bg-cyan-400 py-3.5 text-sm font-semibold text-slate-950 transition-all hover:bg-cyan-300 disabled:opacity-50 disabled:hover:bg-cyan-400"
       >
-        {isParsing ? 'Processing Resume...' : 'Start Interview'}
+        {isParsing ? 'Processing Resume...' : 'Start Voice Interview'}
       </motion.button>
     </div>
   )
