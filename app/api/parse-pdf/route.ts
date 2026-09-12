@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import pdfParse from 'pdf-parse-fork'
+import { extractText } from 'unpdf'
 
 export const runtime = 'nodejs'
 
@@ -13,16 +13,20 @@ export async function POST(req: NextRequest) {
     }
 
     const arrayBuffer = await file.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-    const parsedData = await pdfParse(buffer)
 
-    if (!parsedData.text || !parsedData.text.trim()) {
-      return NextResponse.json({ error: 'PDF appears to be empty or unscannable' }, { status: 400 })
+    const { text } = await extractText(arrayBuffer, { mergePages: true })
+
+    if (!text || !text.trim()) {
+      return NextResponse.json({
+        error: 'This PDF file format could not be read directly. Please copy and paste your resume text below.',
+      }, { status: 400 })
     }
 
-    return NextResponse.json({ text: parsedData.text })
+    return NextResponse.json({ text })
   } catch (err: any) {
     console.error('PDF Parse API Error:', err)
-    return NextResponse.json({ error: err.message || 'Failed to extract text from PDF' }, { status: 500 })
+    return NextResponse.json({
+      error: 'This PDF file format could not be read directly. Please copy and paste your resume text below.',
+    }, { status: 400 })
   }
 }

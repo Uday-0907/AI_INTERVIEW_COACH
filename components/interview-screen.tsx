@@ -118,36 +118,41 @@ export function InterviewScreen({ config, onFinish }: Props) {
   }, [])
 
   // Fetch AI response from the chat API
-  const fetchAIResponse = useCallback(
-    async (
-      currentMessages: ChatMessage[],
-      opening: boolean
-    ): Promise<string | null> => {
-      setIsLoading(true)
-      try {
-        const questionCount = currentMessages.filter((m) => m.role === 'ai').length
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: currentMessages,
-            config,
-            isOpeningQuestion: opening,
-            questionCount,
-          }),
-        })
-        if (!res.ok) throw new Error('Failed to get AI response')
-        const data = await res.json()
-        return data.text || null
-      } catch (err) {
-        console.error('Chat error:', err)
-        return null
-      } finally {
-        setIsLoading(false)
-      }
-    },
-    [config]
-  )
+  const fetchAIResponse = useCallback(async (currentHistory: ChatMessage[], retryPrompt?: string) => {
+  setIsLoading(true)
+  try {
+    const payloadMessages = retryPrompt 
+      ? [...currentHistory, { role: 'user', text: retryPrompt }] 
+      : currentHistory
+
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: payloadMessages,
+        mode: config.type,
+        targetRole: config.targetRole,
+        resumeText: config.resumeText,
+      }),
+    })
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}))
+      console.error('Backend Server Error:', errorData)
+      throw new Error(errorData.error || `Server status ${res.status}`)
+    }
+
+    const data = await res.json()
+    return data.text || null
+  } catch (err: any) {
+    console.error('fetchAIResponse Error:', err.message)
+    setClarityWarning(err.message || 'Failed to connect to AI server')
+    return null
+  } finally {
+    setIsLoading(false)
+  }
+}, [config])
+
 
   // Add an AI message and speak it
   const deliverAIResponse = useCallback(
@@ -205,10 +210,12 @@ export function InterviewScreen({ config, onFinish }: Props) {
       }
       recognitionRef.current = null
     }
+
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current)
       silenceTimerRef.current = null
     }
+
     setIsListening(false)
   }, [])
 
@@ -319,6 +326,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
         clearTimeout(silenceTimerRef.current)
         silenceTimerRef.current = null
       }
+
       // If recognition ended without a result, treat as silence
       if (!gotResult && !awaitingResponseRef.current) {
         const attempt = clarityAttemptsRef.current + 1
@@ -568,3 +576,5 @@ export function InterviewScreen({ config, onFinish }: Props) {
     </div>
   )
 }
+
+

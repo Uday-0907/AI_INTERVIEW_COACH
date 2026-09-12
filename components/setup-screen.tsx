@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { FileText, Upload, Sparkles, CircleAlert as AlertCircle, CircleCheck as CheckCircle2 } from 'lucide-react'
 import type { InterviewConfig } from '@/app/page'
@@ -32,6 +32,8 @@ export function SetupScreen({
   const [isParsing, setIsParsing] = useState(false)
   const [fileName, setFileName] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
+  const [highlightResume, setHighlightResume] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -68,6 +70,12 @@ export function SetupScreen({
     } catch (err: any) {
       console.error('PDF parsing error:', err)
       setErrorMsg(err.message || 'Error processing PDF file. Try pasting the resume text directly.')
+      setHighlightResume(true)
+      setTimeout(() => {
+        textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        textareaRef.current?.focus()
+      }, 200)
+      setTimeout(() => setHighlightResume(false), 4000)
     } finally {
       setIsParsing(false)
       e.target.value = ''
@@ -147,11 +155,17 @@ export function SetupScreen({
             </div>
           </div>
 
-          <textarea
+          <motion.textarea
+            ref={textareaRef}
             value={config.resume}
             onChange={(e) => onConfigChange({ ...config, resume: e.target.value })}
             placeholder="Paste raw resume text, projects, or skill summaries here..."
-            className="h-32 w-full rounded-xl border border-input bg-background p-3 text-xs outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+            animate={highlightResume ? { boxShadow: '0 0 0 2px var(--cyan), 0 0 24px -4px var(--cyan)' } : { boxShadow: '0 0 0 0 transparent' }}
+            transition={{ duration: 0.4 }}
+            className={cn(
+              'h-32 w-full rounded-xl border border-input bg-background p-3 text-xs outline-none transition-colors focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500',
+              highlightResume && 'border-cyan-500',
+            )}
           />
         </div>
 
