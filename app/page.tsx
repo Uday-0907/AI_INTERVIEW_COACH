@@ -6,6 +6,7 @@ import { AppSidebar, type Screen } from '@/components/app-sidebar'
 import { SetupScreen } from '@/components/setup-screen'
 import { InterviewScreen, type ChatMessage } from '@/components/interview-screen'
 import { FeedbackScreen } from '@/components/feedback-screen'
+import { HistoryScreen } from '@/components/history-screen'
 import { AnimatedBackground } from '@/components/animated-background'
 import type { InterviewTypeId } from '@/lib/mock-data'
 
@@ -68,6 +69,13 @@ export default function MainPage() {
     setScreen(nextScreen)
   }
 
+  const handleLoadHistorySession = (sessionConfig: InterviewConfig, sessionTranscript: ChatMessage[]) => {
+    setConfig(sessionConfig)
+    setTranscript(sessionTranscript)
+    setIsSessionActive(false)
+    setScreen('feedback')
+  }
+
   return (
     <div className="relative flex h-screen overflow-hidden bg-transparent">
       <AnimatedBackground />
@@ -126,6 +134,18 @@ export default function MainPage() {
                 transcript={transcript}
                 onRestart={handleRestart}
               />
+            </motion.div>
+          )}
+
+          {screen === 'history' && (
+            <motion.div
+              key="history"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25, ease: 'easeInOut' }}
+            >
+              <HistoryScreen onLoadSession={handleLoadHistorySession} />
             </motion.div>
           )}
         </AnimatePresence>

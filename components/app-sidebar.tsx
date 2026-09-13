@@ -3,21 +3,15 @@
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { UserButton, useUser } from '@clerk/nextjs'
-import {
-  AudioLines,
-  BarChart3,
-  ChevronRight,
-  Settings2,
-  Sparkles,
-  Waypoints,
-} from 'lucide-react'
+import { AudioLines, ChartBar as BarChart3, ChevronRight, History, Settings2, Sparkles, Waypoints } from 'lucide-react'
 
-export type Screen = 'setup' | 'interview' | 'feedback'
+export type Screen = 'setup' | 'interview' | 'feedback' | 'history'
 
 const NAV: { id: Screen; label: string; icon: typeof Settings2; hint: string }[] = [
   { id: 'setup', label: 'Setup', icon: Settings2, hint: 'Configure session' },
   { id: 'interview', label: 'Live Interview', icon: AudioLines, hint: 'In session' },
   { id: 'feedback', label: 'Feedback', icon: BarChart3, hint: 'Analytics' },
+  { id: 'history', label: 'Past Interviews', icon: History, hint: 'History' },
 ]
 
 export function AppSidebar({
