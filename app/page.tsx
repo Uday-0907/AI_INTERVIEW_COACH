@@ -14,6 +14,8 @@ export interface InterviewConfig {
   type: string
   typeId: InterviewTypeId | ''
   resume: string
+  targetRole?: string
+  resumeText?: string
 }
 
 const EMPTY_CONFIG: InterviewConfig = {
@@ -26,33 +28,56 @@ const EMPTY_CONFIG: InterviewConfig = {
 export default function MainPage() {
   const [screen, setScreen] = useState<Screen>('setup')
   const [sessionId, setSessionId] = useState(0)
+  const [isSessionActive, setIsSessionActive] = useState(false)
   const [config, setConfig] = useState<InterviewConfig>(EMPTY_CONFIG)
   const [transcript, setTranscript] = useState<ChatMessage[]>([])
 
   const handleStart = (next: InterviewConfig) => {
-    setConfig(next)
+    setConfig({
+      ...next,
+      targetRole: next.role,
+      resumeText: next.resume,
+    })
     setTranscript([])
+    setIsSessionActive(true)
     setSessionId((id) => id + 1)
     setScreen('interview')
   }
 
   const handleFinish = (finalTranscript: ChatMessage[]) => {
     setTranscript(finalTranscript)
+    setIsSessionActive(false)
     setScreen('feedback')
   }
 
   const handleRestart = () => {
     setConfig(EMPTY_CONFIG)
     setTranscript([])
+    setIsSessionActive(false)
     setSessionId((id) => id + 1)
     setScreen('setup')
+  }
+
+  const handleNavigate = (nextScreen: Screen) => {
+    if (nextScreen === 'interview' && !isSessionActive) {
+      return
+    }
+    if (nextScreen === 'feedback' && transcript.length === 0) {
+      return
+    }
+    setScreen(nextScreen)
   }
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-transparent">
       <AnimatedBackground />
 
-      <AppSidebar screen={screen} onNavigate={setScreen} />
+      <AppSidebar
+        screen={screen}
+        onNavigate={handleNavigate}
+        isSessionActive={isSessionActive}
+        canViewFeedback={transcript.length > 0}
+      />
 
       <main className="flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">

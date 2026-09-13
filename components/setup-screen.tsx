@@ -1,13 +1,13 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, type Variants } from 'framer-motion'
 import { FileText, Upload, Sparkles, CircleAlert as AlertCircle, CircleCheck as CheckCircle2 } from 'lucide-react'
 import type { InterviewConfig } from '@/app/page'
 import { INTERVIEW_TYPES, ROLE_EXAMPLES } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 
-const stagger = {
+const stagger: Variants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
@@ -15,7 +15,7 @@ const stagger = {
   },
 }
 
-const cardItem = {
+const cardItem: Variants = {
   hidden: { opacity: 0, y: 12 },
   show: { opacity: 1, y: 0, transition: { duration: 0.32, ease: 'easeOut' } },
 }
@@ -94,7 +94,14 @@ export function SetupScreen({
     })
   }
 
+  const hasResume = Boolean(config.resume && config.resume.trim())
   const canStart = Boolean(config.role.trim() && config.typeId && !isParsing)
+
+  const buttonLabel = isParsing
+    ? 'Processing Resume...'
+    : hasResume
+      ? 'Start Voice Interview'
+      : 'Start Interview Without Resume'
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 p-6 md:p-10">
@@ -245,7 +252,7 @@ export function SetupScreen({
         disabled={!canStart}
         className="w-full rounded-xl bg-cyan-400 py-3.5 text-sm font-semibold text-slate-950 transition-all hover:bg-cyan-300 disabled:opacity-50 disabled:hover:bg-cyan-400"
       >
-        {isParsing ? 'Processing Resume...' : 'Start Voice Interview'}
+        {buttonLabel}
       </motion.button>
     </div>
   )

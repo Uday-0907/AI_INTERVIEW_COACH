@@ -23,9 +23,13 @@ const NAV: { id: Screen; label: string; icon: typeof Settings2; hint: string }[]
 export function AppSidebar({
   screen,
   onNavigate,
+  isSessionActive = false,
+  canViewFeedback = false,
 }: {
   screen: Screen
   onNavigate: (s: Screen) => void
+  isSessionActive?: boolean
+  canViewFeedback?: boolean
 }) {
   const { user } = useUser()
 
@@ -56,22 +60,42 @@ export function AppSidebar({
         {NAV.map((item) => {
           const Icon = item.icon
           const active = screen === item.id
+          const isDisabled =
+            (item.id === 'interview' && !isSessionActive && !active) ||
+            (item.id === 'feedback' && !canViewFeedback && !active)
+
+          const hintText =
+            item.id === 'interview'
+              ? isSessionActive
+                ? 'In session'
+                : 'Setup required'
+              : item.id === 'feedback'
+                ? canViewFeedback
+                  ? 'Analytics'
+                  : 'Complete session'
+                : item.hint
+
           return (
             <motion.button
               key={item.id}
               type="button"
+              disabled={isDisabled}
               variants={{
                 hidden: { opacity: 0, x: -10 },
                 show: { opacity: 1, x: 0, transition: { duration: 0.3, ease: 'easeOut' } },
               }}
-              whileHover={{ scale: 1.02, x: 2 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => onNavigate(item.id)}
+              whileHover={isDisabled ? undefined : { scale: 1.02, x: 2 }}
+              whileTap={isDisabled ? undefined : { scale: 0.97 }}
+              onClick={() => {
+                if (!isDisabled) onNavigate(item.id)
+              }}
               className={cn(
                 'group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                 active
                   ? 'bg-sidebar-accent text-foreground'
-                  : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground',
+                  : isDisabled
+                    ? 'opacity-40 cursor-not-allowed text-muted-foreground'
+                    : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground',
               )}
             >
               <Icon
@@ -81,7 +105,7 @@ export function AppSidebar({
               {active ? (
                 <ChevronRight className="size-4 text-cyan" />
               ) : (
-                <span className="text-[0.68rem] text-muted-foreground/70">{item.hint}</span>
+                <span className="text-[0.68rem] text-muted-foreground/70">{hintText}</span>
               )}
             </motion.button>
           )

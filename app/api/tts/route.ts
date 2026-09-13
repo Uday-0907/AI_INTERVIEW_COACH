@@ -10,10 +10,10 @@ export async function POST(req: Request) {
     }
 
     // Initialize Edge TTS engine
-    const tts = new MsEdgeTTS()
+    const tts = new MsEdgeTTS({})
     
     // Set voice (en-US-GuyNeural is great for professional interviewers)
-    await tts.setMetadata('en-US-GuyNeural', OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_STEREO)
+    await tts.setMetadata('en-US-GuyNeural', OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3)
 
     // Generate audio stream
     const readable = await tts.toStream(text)

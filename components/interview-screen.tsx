@@ -118,11 +118,11 @@ export function InterviewScreen({ config, onFinish }: Props) {
   }, [])
 
   // Fetch AI response from the chat API
-  const fetchAIResponse = useCallback(async (currentHistory: ChatMessage[], retryPrompt?: string) => {
+  const fetchAIResponse = useCallback(async (currentHistory: ChatMessage[], retryPrompt?: string | boolean) => {
   setIsLoading(true)
   try {
-    const payloadMessages = retryPrompt 
-      ? [...currentHistory, { role: 'user', text: retryPrompt }] 
+    const payloadMessages = typeof retryPrompt === 'string' && retryPrompt.trim()
+      ? [...currentHistory, { role: 'user' as const, text: retryPrompt.trim() }] 
       : currentHistory
 
     const res = await fetch('/api/chat', {
@@ -131,8 +131,8 @@ export function InterviewScreen({ config, onFinish }: Props) {
       body: JSON.stringify({
         messages: payloadMessages,
         mode: config.type,
-        targetRole: config.targetRole,
-        resumeText: config.resumeText,
+        targetRole: config.targetRole || config.role,
+        resumeText: config.resumeText || config.resume,
       }),
     })
 
@@ -165,6 +165,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
 
   // --- Start session ---
   useEffect(() => {
+    if (!config.role?.trim() || !config.typeId) return
     if (startedRef.current) return
     startedRef.current = true
 
@@ -176,12 +177,12 @@ export function InterviewScreen({ config, onFinish }: Props) {
       setClarityWarning(null)
       clarityAttemptsRef.current = 0
 
-      const text = await fetchAIResponse([], true)
+      const text = await fetchAIResponse([], false)
       if (text) deliverAIResponse(text)
     }
 
     startSession()
-  }, [fetchAIResponse, deliverAIResponse])
+  }, [config.role, config.typeId, fetchAIResponse, deliverAIResponse])
 
   // Preload voices (Chrome loads them async)
   useEffect(() => {
@@ -394,6 +395,22 @@ export function InterviewScreen({ config, onFinish }: Props) {
 
   const canEndSession = canEvaluate && !isLoading && !isSpeaking
   const remainingSeconds = Math.max(0, MIN_SESSION_SECONDS - seconds)
+
+  if (!config.role?.trim() || !config.typeId) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center p-6 text-center">
+        <div className="max-w-md space-y-4 rounded-2xl border border-border bg-card p-8 shadow-sm">
+          <div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-cyan/10 text-cyan">
+            <AlertCircle className="size-6" />
+          </div>
+          <h2 className="text-xl font-semibold text-foreground">No Active Session</h2>
+          <p className="text-sm text-muted-foreground">
+            Please configure your target role and interview type in Setup, then click Start to begin.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col p-6 md:p-10">

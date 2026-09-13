@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, type Variants } from 'framer-motion'
+import { useUser } from '@clerk/nextjs'
 import type { InterviewConfig } from '@/app/page'
 import { CircularProgress } from '@/components/circular-progress'
 import { cn } from '@/lib/utils'
@@ -23,12 +24,12 @@ import {
   Volume2,
 } from 'lucide-react'
 
-const fadeIn = {
+const fadeIn: Variants = {
   hidden: { opacity: 0, y: 16 },
   show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: 'easeOut' } },
 }
 
-const stagger = {
+const stagger: Variants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
@@ -36,7 +37,7 @@ const stagger = {
   },
 }
 
-const item = {
+const item: Variants = {
   hidden: { opacity: 0, y: 16 },
   show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: 'easeOut' } },
 }
@@ -58,9 +59,11 @@ export function FeedbackScreen({
   transcript?: { role: 'ai' | 'user'; text: string }[]
   onRestart: () => void
 }) {
+  const { user } = useUser()
   const type = INTERVIEW_TYPES.find((t) => t.id === config.typeId)
 
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null)
+  const [supabaseSessionId, setSupabaseSessionId] = useState<string | null>(null)
   const [evalError, setEvalError] = useState<string | null>(null)
   const [isEvaluating, setIsEvaluating] = useState(false)
 
@@ -76,7 +79,11 @@ export function FeedbackScreen({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            userId: user?.id || 'anonymous_user',
+            targetRole: config.role || 'Software Engineer',
+            interviewType: type?.label || config.type || 'Technical',
             role: config.role,
+            type: config.type,
             resume: config.resume,
             transcript,
           }),
@@ -86,7 +93,13 @@ export function FeedbackScreen({
           throw new Error(data.error || 'Evaluation failed')
         }
         const data = await res.json()
-        if (!cancelled) setEvaluation(data)
+        if (!cancelled) {
+          const evalResult = data.evaluation || data
+          setEvaluation(evalResult)
+          if (data.sessionId) {
+            setSupabaseSessionId(data.sessionId)
+          }
+        }
       } catch (err: any) {
         if (!cancelled) setEvalError(err.message || 'Failed to evaluate interview.')
       } finally {
@@ -96,7 +109,7 @@ export function FeedbackScreen({
 
     runEvaluation()
     return () => { cancelled = true }
-  }, [transcript, config.role, config.resume])
+  }, [transcript, config.role, config.type, config.resume, type?.label, user?.id])
 
   // Loading state
   if (isEvaluating) {
@@ -188,7 +201,14 @@ export function FeedbackScreen({
         className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-6 py-5 md:px-10"
       >
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium uppercase tracking-wider text-cyan">Session report</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wider text-cyan">Session report</span>
+            {supabaseSessionId && (
+              <span className="rounded-md border border-cyan/30 bg-cyan/10 px-2 py-0.5 font-mono text-[10px] text-cyan">
+                Cloud Saved: {supabaseSessionId.slice(0, 8)}...
+              </span>
+            )}
+          </div>
           <h1 className="text-2xl font-semibold tracking-tight text-balance">Feedback &amp; Analytics</h1>
           <p className="text-sm text-muted-foreground">
             {config.role || 'Target role'} · {type?.label ?? (config.type || 'Interview')} ·{' '}
