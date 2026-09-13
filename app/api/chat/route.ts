@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     const history = Array.isArray(messages) ? messages : []
     const isOpening =
       history.length === 0 ||
-      history.every((m: any) => m.role === 'ai' || !m.text || m.text === true)
+      history.every((m: { role: string; text?: string }) => m.role === 'ai' || !m.text || m.text === '')
 
     let promptText = ''
 
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
 The candidate did not provide or upload a resume.
 
 INSTRUCTION FOR OPENING PROMPT:
-Warmly greet the candidate, introduce the interview for the ${targetRole || 'specified'} role, and explicitly ask them to state their background, key technical skills, and recent experience.
+Warmly greet the candidate, introduce the interview for the ${targetRole || 'specified'} role, and explicitly ask them to state their background, key technical skills, and recent project experience.
 Keep your response welcoming, natural, concise (1-3 sentences maximum), and optimized for text-to-speech audio. Do not include markdown asterisks or bullet points in the spoken text.`
       } else {
         promptText = `You are an expert, friendly, and professional technical interviewer conducting a ${mode || 'Technical'} interview for a ${targetRole || 'Candidate'} role.
@@ -72,25 +72,26 @@ ${JSON.stringify(history)}`
     const responseText = result.response.text()
 
     return NextResponse.json({ text: responseText })
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Chat API Error:', err)
 
+    const errObj = err as { status?: number; message?: string }
     const isRateLimit =
-      err?.status === 429 ||
-      (err?.message &&
-        (err.message.includes('429') ||
-          err.message.toLowerCase().includes('quota') ||
-          err.message.includes('RESOURCE_EXHAUSTED')))
+      errObj?.status === 429 ||
+      (errObj?.message &&
+        (errObj.message.includes('429') ||
+          errObj.message.toLowerCase().includes('quota') ||
+          errObj.message.includes('RESOURCE_EXHAUSTED')))
 
     if (isRateLimit) {
       return NextResponse.json(
-        { error: 'Rate limit reached. Please try again later or check your API key.' },
+        { error: 'Rate limit reached. Please wait a moment or check your API key.' },
         { status: 429 }
       )
     }
 
     return NextResponse.json(
-      { error: err.message || 'Failed to generate AI response' },
+      { error: errObj?.message || 'Failed to generate AI response' },
       { status: 500 }
     )
   }

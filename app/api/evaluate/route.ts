@@ -117,7 +117,7 @@ ${JSON.stringify(transcript || [])}`
       } else {
         savedSessionId = savedSession?.id || null
       }
-    } catch (dbErr: any) {
+    } catch (dbErr: unknown) {
       console.error('Supabase DB Exception:', dbErr)
     }
 
@@ -127,23 +127,27 @@ ${JSON.stringify(transcript || [])}`
       evaluation: evaluationData,
       ...evaluationData,
     })
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Evaluate API Error:', err)
 
+    const errObj = err as { status?: number; message?: string }
     const isRateLimit =
-      err?.status === 429 ||
-      (err?.message &&
-        (err.message.includes('429') ||
-          err.message.toLowerCase().includes('quota') ||
-          err.message.includes('RESOURCE_EXHAUSTED')))
+      errObj?.status === 429 ||
+      (errObj?.message &&
+        (errObj.message.includes('429') ||
+          errObj.message.toLowerCase().includes('quota') ||
+          errObj.message.includes('RESOURCE_EXHAUSTED')))
 
     if (isRateLimit) {
       return NextResponse.json(
-        { error: 'Rate limit reached. Please try again later or check your API key.' },
+        { error: 'Rate limit reached. Please wait a moment or check your API key.' },
         { status: 429 }
       )
     }
 
-    return NextResponse.json({ error: err.message || 'Evaluation failed' }, { status: 500 })
+    return NextResponse.json(
+      { error: errObj?.message || 'Evaluation failed' },
+      { status: 500 }
+    )
   }
 }

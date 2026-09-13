@@ -1,11 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ComplexButton } from '@/components/complex-button'
 import { AudioVisualizer } from '@/components/audio-visualizer'
 import type { InterviewConfig } from '@/app/page'
-import { Mic, MicOff, Send, Square, Volume2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Mic, MicOff, Send, Square, Volume2, CircleCheck as CheckCircle2, CircleAlert as AlertCircle } from 'lucide-react'
 
 export interface ChatMessage {
   role: 'ai' | 'user'
@@ -53,10 +53,35 @@ interface SpeechRecognitionLike {
 
 function getSpeechRecognition(): SpeechRecognitionLike | null {
   if (typeof window === 'undefined') return null
-  const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+  const SR = (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike }).SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition
   if (!SR) return null
-  return new SR() as SpeechRecognitionLike
+  return new SR()
 }
+
+// --- Memoized message bubble to prevent re-renders on every voice event ---
+const MessageBubble = memo(function MessageBubble({ message }: { message: ChatMessage }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2 }}
+      className={`flex flex-col ${message.role === 'ai' ? 'items-start' : 'items-end'}`}
+    >
+      <span className="mb-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+        {message.role === 'ai' ? 'Interviewer' : 'You'}
+      </span>
+      <div
+        className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
+          message.role === 'ai'
+            ? 'bg-card border border-border text-foreground'
+            : 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-200'
+        }`}
+      >
+        {message.text}
+      </div>
+    </motion.div>
+  )
+})
 
 export function InterviewScreen({ config, onFinish }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -75,11 +100,22 @@ export function InterviewScreen({ config, onFinish }: Props) {
   const clarityAttemptsRef = useRef(0)
   const awaitingResponseRef = useRef(false)
   const transcriptEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const micActiveRef = useRef(false)
+  const autoRestartRef = useRef(true)
+  const interimTextRef = useRef('')
+  const finalTextRef = useRef('')
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
 
   // Keep messagesRef in sync
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
+
+  // Auto-scroll only when message count changes
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages.length])
 
   // Timer
   useEffect(() => {
@@ -119,40 +155,38 @@ export function InterviewScreen({ config, onFinish }: Props) {
 
   // Fetch AI response from the chat API
   const fetchAIResponse = useCallback(async (currentHistory: ChatMessage[], retryPrompt?: string | boolean) => {
-  setIsLoading(true)
-  try {
-    const payloadMessages = typeof retryPrompt === 'string' && retryPrompt.trim()
-      ? [...currentHistory, { role: 'user' as const, text: retryPrompt.trim() }] 
-      : currentHistory
+    setIsLoading(true)
+    try {
+      const payloadMessages = typeof retryPrompt === 'string' && retryPrompt.trim()
+        ? [...currentHistory, { role: 'user' as const, text: retryPrompt.trim() }]
+        : currentHistory
 
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: payloadMessages,
-        mode: config.type,
-        targetRole: config.targetRole || config.role,
-        resumeText: config.resumeText || config.resume,
-      }),
-    })
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: payloadMessages,
+          mode: config.type,
+          targetRole: config.targetRole || config.role,
+          resumeText: config.resumeText || config.resume,
+        }),
+      })
 
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}))
-      console.error('Backend Server Error:', errorData)
-      throw new Error(errorData.error || `Server status ${res.status}`)
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.error || `Server status ${res.status}`)
+      }
+
+      const data = await res.json()
+      return data.text || null
+    } catch (err: unknown) {
+      const errObj = err as { message?: string }
+      setClarityWarning(errObj?.message || 'Failed to connect to AI server')
+      return null
+    } finally {
+      setIsLoading(false)
     }
-
-    const data = await res.json()
-    return data.text || null
-  } catch (err: any) {
-    console.error('fetchAIResponse Error:', err.message)
-    setClarityWarning(err.message || 'Failed to connect to AI server')
-    return null
-  } finally {
-    setIsLoading(false)
-  }
-}, [config])
-
+  }, [config.type, config.targetRole, config.role, config.resumeText, config.resume])
 
   // Add an AI message and speak it
   const deliverAIResponse = useCallback(
@@ -199,6 +233,9 @@ export function InterviewScreen({ config, onFinish }: Props) {
 
   // --- Speech recognition ---
   const stopListening = useCallback(() => {
+    autoRestartRef.current = false
+    micActiveRef.current = false
+
     if (recognitionRef.current) {
       try {
         recognitionRef.current.onresult = null
@@ -226,7 +263,6 @@ export function InterviewScreen({ config, onFinish }: Props) {
       clarityAttemptsRef.current += 1
 
       if (attempt === 1) {
-        // First failure — ask to repeat
         setClarityWarning(
           'Your voice was not clear or audible. Could you please repeat your answer?'
         )
@@ -235,7 +271,6 @@ export function InterviewScreen({ config, onFinish }: Props) {
         setMessages((prev) => [...prev, { role: 'ai', text: repeatText }])
         speak(repeatText)
       } else {
-        // Second failure — log incomplete and advance
         setClarityWarning(null)
         clarityAttemptsRef.current = 0
 
@@ -243,7 +278,6 @@ export function InterviewScreen({ config, onFinish }: Props) {
           '[Response unclear — marked as incomplete. Moving to next question.]'
         setMessages((prev) => [...prev, { role: 'user', text: incompleteNote }])
 
-        // Fetch next question
         const updatedMessages = [
           ...messagesRef.current,
           { role: 'user' as const, text: incompleteNote },
@@ -261,7 +295,6 @@ export function InterviewScreen({ config, onFinish }: Props) {
       clarityAttemptsRef.current = 0
       setClarityWarning(null)
 
-      // Clarity check: treat very low confidence or empty/garbled text as unclear
       const trimmed = transcript.trim()
       if (!trimmed || trimmed.length < 3 || confidence < 0.3) {
         const attempt = clarityAttemptsRef.current + 1
@@ -269,7 +302,6 @@ export function InterviewScreen({ config, onFinish }: Props) {
         return
       }
 
-      // Good response — send to AI
       const userMsg = trimmed
       const updatedMessages = [...messagesRef.current, { role: 'user' as const, text: userMsg }]
       setMessages(updatedMessages)
@@ -292,12 +324,38 @@ export function InterviewScreen({ config, onFinish }: Props) {
 
     stopListening()
 
+    // Request audio permissions with constraints to reduce clipping
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices
+        .getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        })
+        .then((stream) => {
+          // Stop tracks immediately — we just needed the permission prompt
+          stream.getTracks().forEach((track) => track.stop())
+        })
+        .catch(() => {
+          // Permission denied or unavailable — proceed anyway, recognition may still work
+        })
+    }
+
+    // Mark mic as actively toggled ON by user
+    micActiveRef.current = true
+    autoRestartRef.current = true
+    interimTextRef.current = ''
+    finalTextRef.current = ''
+
     recognition.lang = 'en-US'
-    recognition.continuous = false
-    recognition.interimResults = false
+    recognition.continuous = true
+    recognition.interimResults = true
     recognition.maxAlternatives = 1
 
-    let gotResult = false
+    let gotFinalResult = false
+    let silenceTimeout: ReturnType<typeof setTimeout> | null = null
 
     recognition.onstart = () => {
       setIsListening(true)
@@ -305,41 +363,86 @@ export function InterviewScreen({ config, onFinish }: Props) {
     }
 
     recognition.onresult = (e: SpeechRecognitionEventLike) => {
-      gotResult = true
-      const result = e.results[e.resultIndex]
-      const transcript = result[0].transcript
-      const confidence = result[0].confidence
-      processRecognizedText(transcript, confidence)
+      // Reset silence timer on every speech event
+      if (silenceTimeout) clearTimeout(silenceTimeout)
+      silenceTimeout = setTimeout(() => {
+        // No speech for 3 seconds — finalize whatever we have
+        if (!gotFinalResult && (interimTextRef.current || finalTextRef.current)) {
+          const combined = (finalTextRef.current + ' ' + interimTextRef.current).trim()
+          if (combined.length >= 3) {
+            processRecognizedText(combined, 0.8)
+          } else {
+            const attempt = clarityAttemptsRef.current + 1
+            handleClarityFailure(attempt)
+          }
+        }
+      }, 3000)
+
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const result = e.results[i]
+        if (result.isFinal) {
+          finalTextRef.current += result[0].transcript
+          interimTextRef.current = ''
+          gotFinalResult = true
+        } else {
+          interimTextRef.current = result[0].transcript
+        }
+      }
+
+      // If we have a final result, process it
+      if (gotFinalResult && finalTextRef.current.trim().length >= 3) {
+        if (silenceTimeout) clearTimeout(silenceTimeout)
+        processRecognizedText(finalTextRef.current.trim(), 0.9)
+      }
     }
 
     recognition.onerror = (e: { error: string }) => {
       if (e.error === 'no-speech' || e.error === 'audio-capture' || e.error === 'not-allowed') {
-        if (!gotResult) {
+        if (!gotFinalResult && !interimTextRef.current && !finalTextRef.current) {
           const attempt = clarityAttemptsRef.current + 1
-          handleClarityFailure(attempt)
+          if (attempt <= 2) {
+            handleClarityFailure(attempt)
+          }
         }
       }
     }
 
     recognition.onend = () => {
       setIsListening(false)
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current)
-        silenceTimerRef.current = null
+
+      if (silenceTimeout) {
+        clearTimeout(silenceTimeout)
+        silenceTimeout = null
       }
 
-      // If recognition ended without a result, treat as silence
-      if (!gotResult && !awaitingResponseRef.current) {
-        const attempt = clarityAttemptsRef.current + 1
-        if (attempt <= 2) {
-          handleClarityFailure(attempt)
+      // Auto-reconnect: if mic is still toggled ON and we didn't get a result, restart
+      if (micActiveRef.current && autoRestartRef.current && !gotFinalResult) {
+        // Collect any interim text before restarting
+        const combined = (finalTextRef.current + ' ' + interimTextRef.current).trim()
+        if (combined.length >= 3) {
+          processRecognizedText(combined, 0.7)
+        } else if (autoRestartRef.current) {
+          // Restart recognition after a brief delay
+          setTimeout(() => {
+            if (micActiveRef.current && autoRestartRef.current) {
+              try {
+                interimTextRef.current = ''
+                finalTextRef.current = ''
+                recognition.start()
+                setIsListening(true)
+              } catch {
+                setIsListening(false)
+              }
+            }
+          }, 300)
         }
+      } else if (gotFinalResult && finalTextRef.current.trim().length >= 3) {
+        // Already processed via onresult
       }
     }
 
-    // Silence checker: if no result within 8 seconds, stop and treat as unclear
     silenceTimerRef.current = setTimeout(() => {
-      if (!gotResult) {
+      if (!gotFinalResult) {
         try {
           recognition.stop()
         } catch {
@@ -369,7 +472,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
   }, [stopListening])
 
   // --- Typed text submission ---
-  const handleSendMessage = async () => {
+  const handleSendMessage = useCallback(async () => {
     if (!inputText.trim() || isLoading) return
     clarityAttemptsRef.current = 0
     setClarityWarning(null)
@@ -383,18 +486,26 @@ export function InterviewScreen({ config, onFinish }: Props) {
     const aiText = await fetchAIResponse(updatedMessages, false)
     awaitingResponseRef.current = false
     if (aiText) deliverAIResponse(aiText)
-  }
+  }, [inputText, isLoading, fetchAIResponse, deliverAIResponse])
 
-  const handleEndSession = () => {
+  const handleEndSession = useCallback(() => {
     stopListening()
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel()
     }
     onFinish(messagesRef.current)
-  }
+  }, [stopListening, onFinish])
 
   const canEndSession = canEvaluate && !isLoading && !isSpeaking
   const remainingSeconds = Math.max(0, MIN_SESSION_SECONDS - seconds)
+
+  const handleMicToggle = useCallback(() => {
+    if (isListening) {
+      stopListening()
+    } else {
+      startListening()
+    }
+  }, [isListening, stopListening, startListening])
 
   if (!config.role?.trim() || !config.typeId) {
     return (
@@ -460,27 +571,9 @@ export function InterviewScreen({ config, onFinish }: Props) {
       </div>
 
       {/* Live Transcript Stream */}
-      <div className="my-6 flex-1 overflow-y-auto space-y-4 pr-2">
+      <div ref={scrollContainerRef} className="my-6 flex-1 overflow-y-auto space-y-4 pr-2">
         {messages.map((m, idx) => (
-          <motion.div
-            key={idx}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`flex flex-col ${m.role === 'ai' ? 'items-start' : 'items-end'}`}
-          >
-            <span className="mb-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-              {m.role === 'ai' ? 'Interviewer' : 'You'}
-            </span>
-            <div
-              className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
-                m.role === 'ai'
-                  ? 'bg-card border border-border text-foreground'
-                  : 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-200'
-              }`}
-            >
-              {m.text}
-            </div>
-          </motion.div>
+          <MessageBubble key={idx} message={m} />
         ))}
 
         {/* AI Speaking indicator */}
@@ -542,6 +635,8 @@ export function InterviewScreen({ config, onFinish }: Props) {
         {isLoading && !isSpeaking && (
           <p className="text-xs text-muted-foreground animate-pulse">AI is thinking...</p>
         )}
+
+        <div ref={bottomRef} />
       </div>
 
       {/* Controls / Inputs */}
@@ -549,7 +644,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={isListening ? stopListening : startListening}
+            onClick={handleMicToggle}
             disabled={isLoading || isSpeaking}
             className={`flex size-11 items-center justify-center rounded-xl transition-colors disabled:opacity-50 ${
               isListening
@@ -593,5 +688,3 @@ export function InterviewScreen({ config, onFinish }: Props) {
     </div>
   )
 }
-
-
