@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ComplexButton } from '@/components/complex-button'
 import { AudioVisualizer } from '@/components/audio-visualizer'
+import { useVADSpeech } from '@/hooks/use-vad-speech'
 import type { InterviewConfig } from '@/app/page'
 import { Mic, MicOff, Send, Square, Volume2, CircleCheck as CheckCircle2, CircleAlert as AlertCircle } from 'lucide-react'
 
@@ -23,39 +24,6 @@ function formatTime(total: number) {
   const m = Math.floor(total / 60).toString().padStart(2, '0')
   const s = (total % 60).toString().padStart(2, '0')
   return `${m}:${s}`
-}
-
-// Minimal type declarations for Web Speech API (not in standard TS DOM lib)
-type SpeechRecognitionResult = {
-  0: { transcript: string; confidence: number }
-  isFinal: boolean
-  length: number
-}
-
-interface SpeechRecognitionEventLike {
-  resultIndex: number
-  results: { length: number; [index: number]: SpeechRecognitionResult }
-}
-
-interface SpeechRecognitionLike {
-  lang: string
-  continuous: boolean
-  interimResults: boolean
-  maxAlternatives: number
-  start: () => void
-  stop: () => void
-  abort: () => void
-  onresult: ((e: SpeechRecognitionEventLike) => void) | null
-  onerror: ((e: { error: string }) => void) | null
-  onend: (() => void) | null
-  onstart: (() => void) | null
-}
-
-function getSpeechRecognition(): SpeechRecognitionLike | null {
-  if (typeof window === 'undefined') return null
-  const SR = (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike }).SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition
-  if (!SR) return null
-  return new SR()
 }
 
 // --- Memoized message bubble to prevent re-renders on every voice event ---
@@ -89,21 +57,12 @@ export function InterviewScreen({ config, onFinish }: Props) {
   const [isLoading, setIsLoading] = useState(false)
   const [seconds, setSeconds] = useState(0)
   const [isSpeaking, setIsSpeaking] = useState(false)
-  const [isListening, setIsListening] = useState(false)
   const [clarityWarning, setClarityWarning] = useState<string | null>(null)
   const [canEvaluate, setCanEvaluate] = useState(false)
 
   const messagesRef = useRef<ChatMessage[]>([])
   const startedRef = useRef(false)
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const clarityAttemptsRef = useRef(0)
   const awaitingResponseRef = useRef(false)
-  const transcriptEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const micActiveRef = useRef(false)
-  const autoRestartRef = useRef(true)
-  const interimTextRef = useRef('')
-  const finalTextRef = useRef('')
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -197,6 +156,52 @@ export function InterviewScreen({ config, onFinish }: Props) {
     [speak]
   )
 
+  // --- VAD transcript handler ---
+  const handleTranscriptReady = useCallback((transcript: string, _confidence: number) => {
+    const trimmed = transcript.trim()
+    if (!trimmed || trimmed.length < 3) return
+
+    const updatedMessages = [...messagesRef.current, { role: 'user' as const, text: trimmed }]
+    setMessages(updatedMessages)
+    setClarityWarning(null)
+
+    fetchAIResponse(updatedMessages, false).then((aiText) => {
+      if (aiText) deliverAIResponse(aiText)
+    })
+  }, [fetchAIResponse, deliverAIResponse])
+
+  // --- VAD clarity failure handler ---
+  const handleClarityFailure = useCallback(async (attempt: number) => {
+    if (attempt === 1) {
+      setClarityWarning(
+        'Your voice was not clear or audible. Could you please repeat your answer?'
+      )
+      const repeatText =
+        'Your voice was not clear or audible. Could you please repeat your answer?'
+      setMessages((prev) => [...prev, { role: 'ai', text: repeatText }])
+      speak(repeatText)
+    } else {
+      setClarityWarning(null)
+
+      const incompleteNote =
+        '[Response unclear — marked as incomplete. Moving to next question.]'
+      setMessages((prev) => [...prev, { role: 'user', text: incompleteNote }])
+
+      const updatedMessages = [
+        ...messagesRef.current,
+        { role: 'user' as const, text: incompleteNote },
+      ]
+      const aiText = await fetchAIResponse(updatedMessages, false)
+      if (aiText) deliverAIResponse(aiText)
+    }
+  }, [speak, fetchAIResponse, deliverAIResponse])
+
+  // --- VAD speech hook ---
+  const { vadState, isListening, interimText, startListening, stopListening } = useVADSpeech({
+    onTranscriptReady: handleTranscriptReady,
+    onClarityFailure: handleClarityFailure,
+  })
+
   // --- Start session ---
   useEffect(() => {
     if (!config.role?.trim() || !config.typeId) return
@@ -209,7 +214,6 @@ export function InterviewScreen({ config, onFinish }: Props) {
       setInputText('')
       setSeconds(0)
       setClarityWarning(null)
-      clarityAttemptsRef.current = 0
 
       const text = await fetchAIResponse([], false)
       if (text) deliverAIResponse(text)
@@ -231,240 +235,10 @@ export function InterviewScreen({ config, onFinish }: Props) {
     }
   }, [])
 
-  // --- Speech recognition ---
-  const stopListening = useCallback(() => {
-    autoRestartRef.current = false
-    micActiveRef.current = false
-
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.onresult = null
-        recognitionRef.current.onerror = null
-        recognitionRef.current.onend = null
-        recognitionRef.current.onstart = null
-        recognitionRef.current.abort()
-      } catch {
-        // ignore
-      }
-      recognitionRef.current = null
-    }
-
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current)
-      silenceTimerRef.current = null
-    }
-
-    setIsListening(false)
-  }, [])
-
-  const handleClarityFailure = useCallback(
-    async (attempt: number) => {
-      stopListening()
-      clarityAttemptsRef.current += 1
-
-      if (attempt === 1) {
-        setClarityWarning(
-          'Your voice was not clear or audible. Could you please repeat your answer?'
-        )
-        const repeatText =
-          'Your voice was not clear or audible. Could you please repeat your answer?'
-        setMessages((prev) => [...prev, { role: 'ai', text: repeatText }])
-        speak(repeatText)
-      } else {
-        setClarityWarning(null)
-        clarityAttemptsRef.current = 0
-
-        const incompleteNote =
-          '[Response unclear — marked as incomplete. Moving to next question.]'
-        setMessages((prev) => [...prev, { role: 'user', text: incompleteNote }])
-
-        const updatedMessages = [
-          ...messagesRef.current,
-          { role: 'user' as const, text: incompleteNote },
-        ]
-        const aiText = await fetchAIResponse(updatedMessages, false)
-        if (aiText) deliverAIResponse(aiText)
-      }
-    },
-    [stopListening, speak, fetchAIResponse, deliverAIResponse]
-  )
-
-  const processRecognizedText = useCallback(
-    (transcript: string, confidence: number) => {
-      stopListening()
-      clarityAttemptsRef.current = 0
-      setClarityWarning(null)
-
-      const trimmed = transcript.trim()
-      if (!trimmed || trimmed.length < 3 || confidence < 0.3) {
-        const attempt = clarityAttemptsRef.current + 1
-        handleClarityFailure(attempt)
-        return
-      }
-
-      const userMsg = trimmed
-      const updatedMessages = [...messagesRef.current, { role: 'user' as const, text: userMsg }]
-      setMessages(updatedMessages)
-
-      fetchAIResponse(updatedMessages, false).then((aiText) => {
-        if (aiText) deliverAIResponse(aiText)
-      })
-    },
-    [stopListening, handleClarityFailure, fetchAIResponse, deliverAIResponse]
-  )
-
-  const startListening = useCallback(() => {
-    const recognition = getSpeechRecognition()
-    if (!recognition) {
-      setClarityWarning(
-        'Speech recognition is not supported in this browser. Please type your response below.'
-      )
-      return
-    }
-
-    stopListening()
-
-    // Request audio permissions with constraints to reduce clipping
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices
-        .getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        })
-        .then((stream) => {
-          // Stop tracks immediately — we just needed the permission prompt
-          stream.getTracks().forEach((track) => track.stop())
-        })
-        .catch(() => {
-          // Permission denied or unavailable — proceed anyway, recognition may still work
-        })
-    }
-
-    // Mark mic as actively toggled ON by user
-    micActiveRef.current = true
-    autoRestartRef.current = true
-    interimTextRef.current = ''
-    finalTextRef.current = ''
-
-    recognition.lang = 'en-US'
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.maxAlternatives = 1
-
-    let gotFinalResult = false
-    let silenceTimeout: ReturnType<typeof setTimeout> | null = null
-
-    recognition.onstart = () => {
-      setIsListening(true)
-      setClarityWarning(null)
-    }
-
-    recognition.onresult = (e: SpeechRecognitionEventLike) => {
-      // Reset silence timer on every speech event
-      if (silenceTimeout) clearTimeout(silenceTimeout)
-      silenceTimeout = setTimeout(() => {
-        // No speech for 3 seconds — finalize whatever we have
-        if (!gotFinalResult && (interimTextRef.current || finalTextRef.current)) {
-          const combined = (finalTextRef.current + ' ' + interimTextRef.current).trim()
-          if (combined.length >= 3) {
-            processRecognizedText(combined, 0.8)
-          } else {
-            const attempt = clarityAttemptsRef.current + 1
-            handleClarityFailure(attempt)
-          }
-        }
-      }, 3000)
-
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const result = e.results[i]
-        if (result.isFinal) {
-          finalTextRef.current += result[0].transcript
-          interimTextRef.current = ''
-          gotFinalResult = true
-        } else {
-          interimTextRef.current = result[0].transcript
-        }
-      }
-
-      // If we have a final result, process it
-      if (gotFinalResult && finalTextRef.current.trim().length >= 3) {
-        if (silenceTimeout) clearTimeout(silenceTimeout)
-        processRecognizedText(finalTextRef.current.trim(), 0.9)
-      }
-    }
-
-    recognition.onerror = (e: { error: string }) => {
-      if (e.error === 'no-speech' || e.error === 'audio-capture' || e.error === 'not-allowed') {
-        if (!gotFinalResult && !interimTextRef.current && !finalTextRef.current) {
-          const attempt = clarityAttemptsRef.current + 1
-          if (attempt <= 2) {
-            handleClarityFailure(attempt)
-          }
-        }
-      }
-    }
-
-    recognition.onend = () => {
-      setIsListening(false)
-
-      if (silenceTimeout) {
-        clearTimeout(silenceTimeout)
-        silenceTimeout = null
-      }
-
-      // Auto-reconnect: if mic is still toggled ON and we didn't get a result, restart
-      if (micActiveRef.current && autoRestartRef.current && !gotFinalResult) {
-        // Collect any interim text before restarting
-        const combined = (finalTextRef.current + ' ' + interimTextRef.current).trim()
-        if (combined.length >= 3) {
-          processRecognizedText(combined, 0.7)
-        } else if (autoRestartRef.current) {
-          // Restart recognition after a brief delay
-          setTimeout(() => {
-            if (micActiveRef.current && autoRestartRef.current) {
-              try {
-                interimTextRef.current = ''
-                finalTextRef.current = ''
-                recognition.start()
-                setIsListening(true)
-              } catch {
-                setIsListening(false)
-              }
-            }
-          }, 300)
-        }
-      } else if (gotFinalResult && finalTextRef.current.trim().length >= 3) {
-        // Already processed via onresult
-      }
-    }
-
-    silenceTimerRef.current = setTimeout(() => {
-      if (!gotFinalResult) {
-        try {
-          recognition.stop()
-        } catch {
-          // ignore
-        }
-      }
-    }, 8000)
-
-    recognitionRef.current = recognition
-
-    try {
-      recognition.start()
-    } catch {
-      setIsListening(false)
-    }
-  }, [stopListening, processRecognizedText, handleClarityFailure])
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopListening()
-      if (transcriptEndTimerRef.current) clearTimeout(transcriptEndTimerRef.current)
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         window.speechSynthesis.cancel()
       }
@@ -474,7 +248,6 @@ export function InterviewScreen({ config, onFinish }: Props) {
   // --- Typed text submission ---
   const handleSendMessage = useCallback(async () => {
     if (!inputText.trim() || isLoading) return
-    clarityAttemptsRef.current = 0
     setClarityWarning(null)
 
     const userMsg = inputText.trim()
@@ -499,11 +272,12 @@ export function InterviewScreen({ config, onFinish }: Props) {
   const canEndSession = canEvaluate && !isLoading && !isSpeaking
   const remainingSeconds = Math.max(0, MIN_SESSION_SECONDS - seconds)
 
-  const handleMicToggle = useCallback(() => {
+  const handleMicToggle = useCallback(async () => {
     if (isListening) {
       stopListening()
     } else {
-      startListening()
+      const error = await startListening()
+      if (error) setClarityWarning(error)
     }
   }, [isListening, stopListening, startListening])
 
@@ -596,7 +370,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
           )}
         </AnimatePresence>
 
-        {/* Listening indicator */}
+        {/* Listening indicator with live interim transcript */}
         <AnimatePresence>
           {isListening && (
             <motion.div
@@ -607,10 +381,18 @@ export function InterviewScreen({ config, onFinish }: Props) {
             >
               <div className="flex items-center gap-2 rounded-xl border border-violet/30 bg-violet/10 px-4 py-2.5 text-sm text-violet">
                 <Mic className="size-4 animate-pulse" />
-                <span className="font-medium">Listening...</span>
+                <span className="font-medium">
+                  Listening...
+                  {vadState === 'PAUSED_DEBOUNCING' && ' (processing in 3.5s)'}
+                </span>
               </div>
+              {interimText && (
+                <p className="max-w-[80%] rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs italic text-muted-foreground">
+                  {interimText}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
-                Speak clearly. Your response will be captured automatically.
+                Speak clearly. Your response will be captured automatically after 3.5 seconds of silence.
               </p>
             </motion.div>
           )}
