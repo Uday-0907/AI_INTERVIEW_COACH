@@ -33,7 +33,7 @@ interface SpeechRecognitionLike {
 
 export type VADState = 'IDLE' | 'LISTENING' | 'PAUSED_DEBOUNCING' | 'PROCESSING'
 
-const SILENCE_DURATION_MS = 3500
+const SILENCE_DURATION_MS = 2000
 const PAUSE_DETECT_DURATION_MS = 500
 const GAIN_VALUE = 2.5
 
@@ -172,31 +172,9 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
     }
   }, [])
 
-  // --- VAD: Submit transcript when silence timer elapses ---
+  // --- Release mic tracks and recognition (stops browser recording indicator) ---
 
-  const submitTranscript = useCallback(() => {
-    const combined = (finalTextRef.current + ' ' + interimTextRef.current).trim()
-
-    if (combined.length >= 3) {
-      setVadStateSync('PROCESSING')
-      onTranscriptReadyRef.current(combined, 0.85)
-      finalTextRef.current = ''
-      interimTextRef.current = ''
-      setInterimText('')
-      setVadStateSync('IDLE')
-    } else if (micActiveRef.current) {
-      clarityAttemptsRef.current += 1
-      onClarityFailureRef.current(clarityAttemptsRef.current)
-      finalTextRef.current = ''
-      interimTextRef.current = ''
-      setInterimText('')
-      setVadStateSync('IDLE')
-    }
-  }, [setVadStateSync])
-
-  // --- Stop listening ---
-
-  const stopListening = useCallback(() => {
+  const releaseMic = useCallback(() => {
     micActiveRef.current = false
     clearAllTimers()
 
@@ -212,13 +190,65 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
     }
 
     teardownAudioPipeline()
+    setIsListening(false)
+  }, [clearAllTimers, teardownAudioPipeline])
 
+  // --- VAD: Submit transcript when silence timer elapses ---
+
+  const submitTranscript = useCallback(() => {
+    const combined = (finalTextRef.current + ' ' + interimTextRef.current).trim()
+
+    if (combined.length >= 3) {
+      releaseMic()
+      setVadStateSync('PROCESSING')
+      onTranscriptReadyRef.current(combined, 0.85)
+      finalTextRef.current = ''
+      interimTextRef.current = ''
+      setInterimText('')
+    } else if (micActiveRef.current) {
+      clarityAttemptsRef.current += 1
+      onClarityFailureRef.current(clarityAttemptsRef.current)
+      finalTextRef.current = ''
+      interimTextRef.current = ''
+      setInterimText('')
+      setVadStateSync('IDLE')
+    }
+  }, [releaseMic, setVadStateSync])
+
+  // --- Submit immediately (bypass silence timer — Send button) ---
+
+  const submitNow = useCallback(() => {
+    clearAllTimers()
+    const combined = (finalTextRef.current + ' ' + interimTextRef.current).trim()
+
+    if (combined.length >= 3) {
+      releaseMic()
+      setVadStateSync('PROCESSING')
+      onTranscriptReadyRef.current(combined, 0.85)
+      finalTextRef.current = ''
+      interimTextRef.current = ''
+      setInterimText('')
+    } else {
+      releaseMic()
+      setVadStateSync('IDLE')
+    }
+  }, [clearAllTimers, releaseMic, setVadStateSync])
+
+  // --- Reset VAD state to IDLE (called by parent after AI response) ---
+
+  const resetState = useCallback(() => {
+    setVadStateSync('IDLE')
+  }, [setVadStateSync])
+
+  // --- Stop listening ---
+
+  const stopListening = useCallback(() => {
+    releaseMic()
     interimTextRef.current = ''
     finalTextRef.current = ''
     setInterimText('')
     setVadStateSync('IDLE')
-    setIsListening(false)
-  }, [clearAllTimers, teardownAudioPipeline, setVadStateSync])
+  }, [releaseMic, setVadStateSync])
 
   // --- Start listening ---
 
@@ -285,7 +315,7 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
           setVadStateSync('PAUSED_DEBOUNCING')
         }, PAUSE_DETECT_DURATION_MS)
 
-        // Start the 3.5-second silence timer. If new speech arrives before
+        // Start the 2-second silence timer. If new speech arrives before
         // it fires, the timer is cleared above and restarted here.
         silenceTimerRef.current = setTimeout(() => {
           clearPauseDetectTimer()
@@ -361,5 +391,7 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
     interimText,
     startListening,
     stopListening,
+    submitNow,
+    resetState,
   }
 }

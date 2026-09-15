@@ -51,6 +51,113 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: ChatMe
   )
 })
 
+// --- Memoized input bar: isolates typing from heavy speech re-renders ---
+interface InputBarProps {
+  inputText: string
+  onInputChange: (value: string) => void
+  onSend: () => void
+  onMicToggle: () => void
+  onSubmitNow: () => void
+  isListening: boolean
+  isLoading: boolean
+  isSpeaking: boolean
+}
+
+const InputBar = memo(function InputBar({
+  inputText,
+  onInputChange,
+  onSend,
+  onMicToggle,
+  onSubmitNow,
+  isListening,
+  isLoading,
+  isSpeaking,
+}: InputBarProps) {
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        type="button"
+        onClick={onMicToggle}
+        disabled={isLoading || isSpeaking}
+        className={`flex size-11 items-center justify-center rounded-xl transition-colors disabled:opacity-50 ${
+          isListening
+            ? 'bg-violet/20 text-violet border border-violet/40'
+            : 'bg-secondary text-foreground hover:bg-secondary/80'
+        }`}
+        aria-label={isListening ? 'Stop listening' : 'Start voice input'}
+      >
+        {isListening ? <MicOff className="size-5" /> : <Mic className="size-5" />}
+      </button>
+
+      <input
+        type="text"
+        value={inputText}
+        onChange={(e) => onInputChange(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && onSend()}
+        placeholder="Type your response..."
+        disabled={isLoading || isSpeaking || isListening}
+        className="flex-1 rounded-xl border border-input bg-card px-4 py-2.5 text-sm outline-none focus:border-cyan disabled:opacity-50"
+      />
+
+      {isListening ? (
+        <button
+          type="button"
+          onClick={onSubmitNow}
+          className="flex size-11 items-center justify-center rounded-xl bg-violet text-white transition-colors hover:bg-violet/80"
+          aria-label="Submit voice answer now"
+        >
+          <Send className="size-5" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={isLoading || isSpeaking || !inputText.trim()}
+          className="flex size-11 items-center justify-center rounded-xl bg-cyan text-slate-950 font-medium transition-colors disabled:opacity-50"
+        >
+          <Send className="size-5" />
+        </button>
+      )}
+    </div>
+  )
+})
+
+// --- Memoized status badge ---
+const StatusBadge = memo(function StatusBadge({ vadState }: { vadState: string }) {
+  if (vadState === 'IDLE') return null
+  return (
+    <AnimatePresence>
+      <motion.div
+        key={vadState}
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -4 }}
+        transition={{ duration: 0.2 }}
+        className="flex items-center justify-center"
+      >
+        {vadState === 'LISTENING' && (
+          <span className="flex items-center gap-1.5 rounded-full bg-success/15 px-3 py-1 text-xs font-medium text-success">
+            <span className="size-1.5 animate-pulse rounded-full bg-success" />
+            Listening...
+          </span>
+        )}
+        {vadState === 'PAUSED_DEBOUNCING' && (
+          <span className="flex items-center gap-1.5 rounded-full bg-warning/15 px-3 py-1 text-xs font-medium text-warning">
+            <span className="size-1.5 animate-pulse rounded-full bg-warning" />
+            Pause detected (2s)...
+          </span>
+        )}
+        {vadState === 'PROCESSING' && (
+          <span className="flex items-center gap-1.5 rounded-full bg-cyan/15 px-3 py-1 text-xs font-medium text-cyan">
+            <span className="size-1.5 animate-pulse rounded-full bg-cyan" />
+            Thinking...
+          </span>
+        )}
+      </motion.div>
+    </AnimatePresence>
+  )
+})
+
 export function InterviewScreen({ config, onFinish }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState('')
@@ -62,9 +169,32 @@ export function InterviewScreen({ config, onFinish }: Props) {
 
   const messagesRef = useRef<ChatMessage[]>([])
   const startedRef = useRef(false)
-  const awaitingResponseRef = useRef(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  // Refs to break circular dependency: the VAD hook needs callbacks that
+  // themselves reference hook outputs (resetState). We store the actual
+  // handlers in refs and pass stable wrappers to the hook.
+  const transcriptReadyRef = useRef<(transcript: string, confidence: number) => void>(() => {})
+  const clarityFailureRef = useRef<(attempt: number) => void>(() => {})
+
+  // --- VAD speech hook: called FIRST, before any callback that uses its outputs ---
+  const {
+    vadState,
+    isListening,
+    interimText,
+    startListening,
+    stopListening,
+    submitNow,
+    resetState,
+  } = useVADSpeech({
+    onTranscriptReady: useCallback((transcript: string, confidence: number) => {
+      transcriptReadyRef.current(transcript, confidence)
+    }, []),
+    onClarityFailure: useCallback((attempt: number) => {
+      clarityFailureRef.current(attempt)
+    }, []),
+  })
 
   // Keep messagesRef in sync
   useEffect(() => {
@@ -152,11 +282,12 @@ export function InterviewScreen({ config, onFinish }: Props) {
     (text: string) => {
       setMessages((prev) => [...prev, { role: 'ai', text }])
       speak(text)
+      resetState()
     },
-    [speak]
+    [speak, resetState]
   )
 
-  // --- VAD transcript handler ---
+  // --- VAD transcript handler (stored in ref for the hook) ---
   const handleTranscriptReady = useCallback((transcript: string, _confidence: number) => {
     const trimmed = transcript.trim()
     if (!trimmed || trimmed.length < 3) return
@@ -170,7 +301,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
     })
   }, [fetchAIResponse, deliverAIResponse])
 
-  // --- VAD clarity failure handler ---
+  // --- VAD clarity failure handler (stored in ref for the hook) ---
   const handleClarityFailure = useCallback(async (attempt: number) => {
     if (attempt === 1) {
       setClarityWarning(
@@ -196,11 +327,11 @@ export function InterviewScreen({ config, onFinish }: Props) {
     }
   }, [speak, fetchAIResponse, deliverAIResponse])
 
-  // --- VAD speech hook ---
-  const { vadState, isListening, interimText, startListening, stopListening } = useVADSpeech({
-    onTranscriptReady: handleTranscriptReady,
-    onClarityFailure: handleClarityFailure,
-  })
+  // Sync handler refs so the stable wrappers passed to the hook call the latest versions
+  useEffect(() => {
+    transcriptReadyRef.current = handleTranscriptReady
+    clarityFailureRef.current = handleClarityFailure
+  }, [handleTranscriptReady, handleClarityFailure])
 
   // --- Start session ---
   useEffect(() => {
@@ -254,10 +385,8 @@ export function InterviewScreen({ config, onFinish }: Props) {
     const updatedMessages = [...messagesRef.current, { role: 'user' as const, text: userMsg }]
     setMessages(updatedMessages)
     setInputText('')
-    awaitingResponseRef.current = true
 
     const aiText = await fetchAIResponse(updatedMessages, false)
-    awaitingResponseRef.current = false
     if (aiText) deliverAIResponse(aiText)
   }, [inputText, isLoading, fetchAIResponse, deliverAIResponse])
 
@@ -269,9 +398,6 @@ export function InterviewScreen({ config, onFinish }: Props) {
     onFinish(messagesRef.current)
   }, [stopListening, onFinish])
 
-  const canEndSession = canEvaluate && !isLoading && !isSpeaking
-  const remainingSeconds = Math.max(0, MIN_SESSION_SECONDS - seconds)
-
   const handleMicToggle = useCallback(async () => {
     if (isListening) {
       stopListening()
@@ -280,6 +406,14 @@ export function InterviewScreen({ config, onFinish }: Props) {
       if (error) setClarityWarning(error)
     }
   }, [isListening, stopListening, startListening])
+
+  const handleInputChange = useCallback((value: string) => {
+    setInputText(value)
+  }, [])
+
+  const canEndSession = canEvaluate && !isLoading && !isSpeaking
+  const remainingSeconds = Math.max(0, MIN_SESSION_SECONDS - seconds)
+  const aiQuestionCount = messages.filter((m) => m.role === 'ai').length
 
   if (!config.role?.trim() || !config.typeId) {
     return (
@@ -383,7 +517,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
                 <Mic className="size-4 animate-pulse" />
                 <span className="font-medium">
                   Listening...
-                  {vadState === 'PAUSED_DEBOUNCING' && ' (processing in 3.5s)'}
+                  {vadState === 'PAUSED_DEBOUNCING' && ' (processing in 2s)'}
                 </span>
               </div>
               {interimText && (
@@ -392,7 +526,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                Speak clearly. Your response will be captured automatically after 3.5 seconds of silence.
+                Speak clearly. Your response will be captured automatically after 2 seconds of silence.
               </p>
             </motion.div>
           )}
@@ -423,40 +557,18 @@ export function InterviewScreen({ config, onFinish }: Props) {
 
       {/* Controls / Inputs */}
       <div className="space-y-3 border-t border-border pt-4">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={handleMicToggle}
-            disabled={isLoading || isSpeaking}
-            className={`flex size-11 items-center justify-center rounded-xl transition-colors disabled:opacity-50 ${
-              isListening
-                ? 'bg-violet/20 text-violet border border-violet/40'
-                : 'bg-secondary text-foreground hover:bg-secondary/80'
-            }`}
-            aria-label={isListening ? 'Stop listening' : 'Start voice input'}
-          >
-            {isListening ? <MicOff className="size-5" /> : <Mic className="size-5" />}
-          </button>
+        <InputBar
+          inputText={inputText}
+          onInputChange={handleInputChange}
+          onSend={handleSendMessage}
+          onMicToggle={handleMicToggle}
+          onSubmitNow={submitNow}
+          isListening={isListening}
+          isLoading={isLoading}
+          isSpeaking={isSpeaking}
+        />
 
-          <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder="Type your response..."
-            disabled={isLoading || isSpeaking || isListening}
-            className="flex-1 rounded-xl border border-input bg-card px-4 py-2.5 text-sm outline-none focus:border-cyan disabled:opacity-50"
-          />
-
-          <button
-            type="button"
-            onClick={handleSendMessage}
-            disabled={isLoading || isSpeaking || isListening || !inputText.trim()}
-            className="flex size-11 items-center justify-center rounded-xl bg-cyan text-slate-950 font-medium transition-colors disabled:opacity-50"
-          >
-            <Send className="size-5" />
-          </button>
-        </div>
+        <StatusBadge vadState={vadState} />
 
         <div className="flex items-center justify-between text-[0.68rem] text-muted-foreground">
           <span>
@@ -464,7 +576,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
               ? 'Session complete — click "Complete & Evaluate" for your feedback report.'
               : `Minimum 7-minute session required. ${Math.ceil(remainingSeconds / 60)} min remaining.`}
           </span>
-          <span>{messages.filter((m) => m.role === 'ai').length} questions asked</span>
+          <span>{aiQuestionCount} questions asked</span>
         </div>
       </div>
     </div>
