@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-// --- Web Speech API type declarations (not in standard TS DOM lib) ---
-
 type SpeechRecognitionResultItem = {
   0: { transcript: string; confidence: number }
   isFinal: boolean
@@ -29,13 +27,9 @@ interface SpeechRecognitionLike {
   onstart: (() => void) | null
 }
 
-// --- VAD State Machine ---
+export type VADState = 'IDLE' | 'LISTENING' | 'PROCESSING'
 
-export type VADState = 'IDLE' | 'LISTENING' | 'PAUSED_DEBOUNCING' | 'PROCESSING'
-
-const SILENCE_DURATION_MS = 2000
-const PAUSE_DETECT_DURATION_MS = 500
-const GAIN_VALUE = 2.5
+const GAIN_VALUE = 3.5
 
 function getSpeechRecognition(): SpeechRecognitionLike | null {
   if (typeof window === 'undefined') return null
@@ -58,25 +52,19 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
   const [isListening, setIsListening] = useState(false)
   const [interimText, setInterimText] = useState('')
 
-  // WebAudio pipeline refs
   const audioContextRef = useRef<AudioContext | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const gainNodeRef = useRef<GainNode | null>(null)
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null)
 
-  // Speech recognition ref
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
 
-  // VAD state machine refs
   const vadStateRef = useRef<VADState>('IDLE')
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pauseDetectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const interimTextRef = useRef('')
   const finalTextRef = useRef('')
   const micActiveRef = useRef(false)
   const clarityAttemptsRef = useRef(0)
 
-  // Callback refs to avoid stale closures
   const onTranscriptReadyRef = useRef(onTranscriptReady)
   const onClarityFailureRef = useRef(onClarityFailure)
 
@@ -89,29 +77,6 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
     vadStateRef.current = state
     setVadState(state)
   }, [])
-
-  // --- Timer helpers ---
-
-  const clearSilenceTimer = useCallback(() => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current)
-      silenceTimerRef.current = null
-    }
-  }, [])
-
-  const clearPauseDetectTimer = useCallback(() => {
-    if (pauseDetectTimerRef.current) {
-      clearTimeout(pauseDetectTimerRef.current)
-      pauseDetectTimerRef.current = null
-    }
-  }, [])
-
-  const clearAllTimers = useCallback(() => {
-    clearSilenceTimer()
-    clearPauseDetectTimer()
-  }, [clearSilenceTimer, clearPauseDetectTimer])
-
-  // --- WebAudio Gain Engine ---
 
   const initAudioPipeline = useCallback(async (): Promise<boolean> => {
     if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
@@ -144,8 +109,6 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
       gainNodeRef.current = gainNode
 
       sourceNode.connect(gainNode)
-      // Not connecting to destination — avoids feedback while keeping
-      // the gain-processed stream available for downstream analysis.
 
       return true
     } catch {
@@ -172,11 +135,8 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
     }
   }, [])
 
-  // --- Release mic tracks and recognition (stops browser recording indicator) ---
-
   const releaseMic = useCallback(() => {
     micActiveRef.current = false
-    clearAllTimers()
 
     if (recognitionRef.current) {
       try {
@@ -191,56 +151,28 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
 
     teardownAudioPipeline()
     setIsListening(false)
-  }, [clearAllTimers, teardownAudioPipeline])
-
-  // --- VAD: Submit transcript when silence timer elapses ---
-
-  const submitTranscript = useCallback(() => {
-    const combined = (finalTextRef.current + ' ' + interimTextRef.current).trim()
-
-    if (combined.length >= 3) {
-      releaseMic()
-      setVadStateSync('PROCESSING')
-      onTranscriptReadyRef.current(combined, 0.85)
-      finalTextRef.current = ''
-      interimTextRef.current = ''
-      setInterimText('')
-    } else if (micActiveRef.current) {
-      clarityAttemptsRef.current += 1
-      onClarityFailureRef.current(clarityAttemptsRef.current)
-      finalTextRef.current = ''
-      interimTextRef.current = ''
-      setInterimText('')
-      setVadStateSync('IDLE')
-    }
-  }, [releaseMic, setVadStateSync])
-
-  // --- Submit immediately (bypass silence timer — Send button) ---
+  }, [teardownAudioPipeline])
 
   const submitNow = useCallback(() => {
-    clearAllTimers()
     const combined = (finalTextRef.current + ' ' + interimTextRef.current).trim()
 
+    releaseMic()
+
     if (combined.length >= 3) {
-      releaseMic()
       setVadStateSync('PROCESSING')
       onTranscriptReadyRef.current(combined, 0.85)
-      finalTextRef.current = ''
-      interimTextRef.current = ''
-      setInterimText('')
     } else {
-      releaseMic()
       setVadStateSync('IDLE')
     }
-  }, [clearAllTimers, releaseMic, setVadStateSync])
 
-  // --- Reset VAD state to IDLE (called by parent after AI response) ---
+    finalTextRef.current = ''
+    interimTextRef.current = ''
+    setInterimText('')
+  }, [releaseMic, setVadStateSync])
 
   const resetState = useCallback(() => {
     setVadStateSync('IDLE')
   }, [setVadStateSync])
-
-  // --- Stop listening ---
 
   const stopListening = useCallback(() => {
     releaseMic()
@@ -250,26 +182,20 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
     setVadStateSync('IDLE')
   }, [releaseMic, setVadStateSync])
 
-  // --- Start listening ---
-
   const startListening = useCallback(async (): Promise<string | null> => {
     const recognition = getSpeechRecognition()
     if (!recognition) {
       return 'Speech recognition is not supported in this browser. Please type your response below.'
     }
 
-    // Tear down any existing session
     if (recognitionRef.current) {
       try { recognitionRef.current.abort() } catch { /* ignore */ }
       recognitionRef.current = null
     }
-    clearAllTimers()
     teardownAudioPipeline()
 
-    // Initialize WebAudio gain engine
     await initAudioPipeline()
 
-    // Reset VAD state
     micActiveRef.current = true
     interimTextRef.current = ''
     finalTextRef.current = ''
@@ -300,28 +226,6 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
 
       const combined = (finalTextRef.current + ' ' + interimTextRef.current).trim()
       setInterimText(combined)
-
-      if (combined.length >= 3) {
-        // New speech arrived — clear any existing timers.
-        // If we were in PAUSED_DEBOUNCING, this is the "new speech during debounce"
-        // case: instantly clear the silence timer without losing state.
-        clearSilenceTimer()
-        clearPauseDetectTimer()
-        setVadStateSync('LISTENING')
-
-        // Start pause detection — transitions to PAUSED_DEBOUNCING after a
-        // short gap with no new onresult events.
-        pauseDetectTimerRef.current = setTimeout(() => {
-          setVadStateSync('PAUSED_DEBOUNCING')
-        }, PAUSE_DETECT_DURATION_MS)
-
-        // Start the 2-second silence timer. If new speech arrives before
-        // it fires, the timer is cleared above and restarted here.
-        silenceTimerRef.current = setTimeout(() => {
-          clearPauseDetectTimer()
-          submitTranscript()
-        }, SILENCE_DURATION_MS)
-      }
     }
 
     recognition.onerror = (e: { error: string }) => {
@@ -337,10 +241,7 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
     }
 
     recognition.onend = () => {
-      // Auto-reconnect: if the mic is still active and we're in LISTENING
-      // or PAUSED_DEBOUNCING, the recognition service dropped unexpectedly.
-      // Re-invoke start() without clearing transcript state or timers.
-      if (micActiveRef.current && (vadStateRef.current === 'LISTENING' || vadStateRef.current === 'PAUSED_DEBOUNCING')) {
+      if (micActiveRef.current && vadStateRef.current === 'LISTENING') {
         try {
           recognition.start()
         } catch {
@@ -364,13 +265,11 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
     }
 
     return null
-  }, [initAudioPipeline, clearAllTimers, clearSilenceTimer, clearPauseDetectTimer, teardownAudioPipeline, setVadStateSync, submitTranscript])
+  }, [initAudioPipeline, teardownAudioPipeline, setVadStateSync])
 
-  // Cleanup on unmount — dispose all WebAudio nodes and recognition instances
   useEffect(() => {
     return () => {
       micActiveRef.current = false
-      clearAllTimers()
       if (recognitionRef.current) {
         try {
           recognitionRef.current.onresult = null
@@ -383,7 +282,7 @@ export function useVADSpeech({ onTranscriptReady, onClarityFailure }: UseVADSpee
       }
       teardownAudioPipeline()
     }
-  }, [clearAllTimers, teardownAudioPipeline])
+  }, [teardownAudioPipeline])
 
   return {
     vadState,

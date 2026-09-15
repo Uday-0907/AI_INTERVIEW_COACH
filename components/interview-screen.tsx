@@ -141,12 +141,6 @@ const StatusBadge = memo(function StatusBadge({ vadState }: { vadState: string }
             Listening...
           </span>
         )}
-        {vadState === 'PAUSED_DEBOUNCING' && (
-          <span className="flex items-center gap-1.5 rounded-full bg-warning/15 px-3 py-1 text-xs font-medium text-warning">
-            <span className="size-1.5 animate-pulse rounded-full bg-warning" />
-            Pause detected (2s)...
-          </span>
-        )}
         {vadState === 'PROCESSING' && (
           <span className="flex items-center gap-1.5 rounded-full bg-cyan/15 px-3 py-1 text-xs font-medium text-cyan">
             <span className="size-1.5 animate-pulse rounded-full bg-cyan" />
@@ -515,10 +509,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
             >
               <div className="flex items-center gap-2 rounded-xl border border-violet/30 bg-violet/10 px-4 py-2.5 text-sm text-violet">
                 <Mic className="size-4 animate-pulse" />
-                <span className="font-medium">
-                  Listening...
-                  {vadState === 'PAUSED_DEBOUNCING' && ' (processing in 2s)'}
-                </span>
+                <span className="font-medium">Listening...</span>
               </div>
               {interimText && (
                 <p className="max-w-[80%] rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs italic text-muted-foreground">
@@ -526,7 +517,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                Speak clearly. Your response will be captured automatically after 2 seconds of silence.
+                Speak clearly. Click the Send button when you're done — your mic stays open until then.
               </p>
             </motion.div>
           )}
