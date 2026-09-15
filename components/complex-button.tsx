@@ -13,7 +13,7 @@ interface ComplexButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 export function ComplexButton({
   children,
   className,
-  glowColor = 'rgba(6, 182, 212, 0.35)', // Default Cyan glow
+  glowColor = 'color-mix(in srgb, var(--cyan) 35%, transparent)',
   onClick,
   ...props
 }: ComplexButtonProps) {
@@ -61,7 +61,7 @@ export function ComplexButton({
         mass: 0.8,
       }}
       className={cn(
-        'relative group overflow-hidden rounded-xl border border-white/10 bg-slate-950/80 px-6 py-3.5 text-sm font-semibold text-white shadow-xl backdrop-blur-md transition-colors duration-300 hover:border-cyan-500/50',
+        'group relative overflow-hidden rounded-xl border border-border/40 bg-card/80 px-6 py-3.5 text-sm font-semibold text-foreground shadow-xl backdrop-blur-xl transition-colors duration-300 hover:border-cyan/50',
         className
       )}
       {...(props as any)}
@@ -80,13 +80,13 @@ export function ComplexButton({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.85 }}
             transition={{ duration: 0.3 }}
-            className="pointer-events-none absolute -inset-1 -z-10 rounded-2xl bg-cyan-500/20 blur-xl"
+            className="pointer-events-none absolute -inset-1 -z-10 rounded-2xl bg-cyan/20 blur-xl"
           />
         )}
       </AnimatePresence>
 
       {/* 4. Glassmorphism Highlight Line */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
 
       {/* 5. Animated Content Container */}
       <div className="relative z-10 flex items-center justify-center gap-2.5">
@@ -94,10 +94,10 @@ export function ComplexButton({
           animate={{ rotate: isHovered ? [0, -10, 10, 0] : 0 }}
           transition={{ duration: 0.5, ease: 'easeInOut' }}
         >
-          <Sparkles className="size-4 text-cyan-400 transition-colors group-hover:text-cyan-300" />
+            <Sparkles className="size-4 text-cyan transition-colors group-hover:text-cyan" />
         </motion.span>
 
-        <span className="bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">
+          <span className="text-foreground">
           {children}
         </span>
 
@@ -106,7 +106,7 @@ export function ComplexButton({
           animate={{ x: isHovered ? 4 : 0 }}
           transition={{ type: 'spring', stiffness: 400, damping: 20 }}
         >
-          <ArrowRight className="size-4 text-cyan-400" />
+          <ArrowRight className="size-4 text-cyan" />
         </motion.span>
       </div>
 
@@ -116,7 +116,7 @@ export function ComplexButton({
           initial={{ scale: 0, opacity: 0.6 }}
           animate={{ scale: 4, opacity: 0 }}
           transition={{ duration: 0.6, ease: 'easeOut' }}
-          className="pointer-events-none absolute size-20 rounded-full bg-cyan-400/40"
+          className="pointer-events-none absolute size-20 rounded-full bg-cyan/40"
           style={{
             left: springX.get() - 40,
             top: springY.get() - 40,

@@ -42,7 +42,7 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: ChatMe
         className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
           message.role === 'ai'
             ? 'bg-card border border-border text-foreground'
-            : 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-200'
+            : 'bg-cyan/10 border border-cyan/20 text-cyan'
         }`}
       >
         {message.text}
@@ -74,15 +74,15 @@ const InputBar = memo(function InputBar({
   isSpeaking,
 }: InputBarProps) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3 rounded-2xl border border-border/40 bg-card/70 p-2 backdrop-blur-xl">
       <button
         type="button"
         onClick={onMicToggle}
         disabled={isLoading || isSpeaking}
         className={`flex size-11 items-center justify-center rounded-xl transition-colors disabled:opacity-50 ${
           isListening
-            ? 'bg-violet/20 text-violet border border-violet/40'
-            : 'bg-secondary text-foreground hover:bg-secondary/80'
+            ? 'border border-violet/40 bg-violet/20 text-violet'
+            : 'border border-border/40 bg-secondary/70 text-foreground hover:bg-secondary'
         }`}
         aria-label={isListening ? 'Stop listening' : 'Start voice input'}
       >
@@ -96,14 +96,14 @@ const InputBar = memo(function InputBar({
         onKeyDown={(e) => e.key === 'Enter' && onSend()}
         placeholder="Type your response..."
         disabled={isLoading || isSpeaking || isListening}
-        className="flex-1 rounded-xl border border-input bg-card px-4 py-2.5 text-sm outline-none focus:border-cyan disabled:opacity-50"
+          className="flex-1 rounded-xl border border-border/40 bg-background/50 px-4 py-2.5 text-sm outline-none transition-colors focus:border-cyan disabled:opacity-50"
       />
 
       {isListening ? (
         <button
           type="button"
           onClick={onSubmitNow}
-          className="flex size-11 items-center justify-center rounded-xl bg-violet text-white transition-colors hover:bg-violet/80"
+          className="flex size-11 items-center justify-center rounded-xl border border-violet/40 bg-violet/80 text-foreground transition-colors hover:bg-violet"
           aria-label="Submit voice answer now"
         >
           <Send className="size-5" />
@@ -113,7 +113,7 @@ const InputBar = memo(function InputBar({
           type="button"
           onClick={onSend}
           disabled={isLoading || isSpeaking || !inputText.trim()}
-          className="flex size-11 items-center justify-center rounded-xl bg-cyan text-slate-950 font-medium transition-colors disabled:opacity-50"
+          className="flex size-11 items-center justify-center rounded-xl border border-cyan/40 bg-cyan text-background font-medium transition-colors disabled:opacity-50"
         >
           <Send className="size-5" />
         </button>
@@ -426,9 +426,9 @@ export function InterviewScreen({ config, onFinish }: Props) {
   }
 
   return (
-    <div className="flex h-full flex-col p-6 md:p-10">
+    <div className="relative flex h-full flex-col p-6 md:p-10">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border/40 bg-card/60 p-4 shadow-lg backdrop-blur-xl md:p-5">
         <div>
           <h2 className="text-xl font-semibold text-foreground">
             {config.role || 'Interview Session'}
@@ -441,7 +441,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
 
         <div className="flex items-center gap-3">
           <div className="flex flex-col items-end">
-            <span className="rounded-lg border border-border bg-secondary/50 px-3 py-1.5 font-mono text-sm tabular-nums">
+            <span className="rounded-lg border border-border/40 bg-background/50 px-3 py-1.5 font-mono text-sm tabular-nums backdrop-blur-md">
               {formatTime(seconds)}
             </span>
             {!canEvaluate && (
@@ -473,7 +473,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
       </div>
 
       {/* Live Transcript Stream */}
-      <div ref={scrollContainerRef} className="my-6 flex-1 overflow-y-auto space-y-4 pr-2">
+      <div ref={scrollContainerRef} className="my-6 flex-1 space-y-4 overflow-y-auto rounded-2xl border border-border/40 bg-card/50 p-4 shadow-lg backdrop-blur-xl md:p-6">
         {messages.map((m, idx) => (
           <MessageBubble key={idx} message={m} />
         ))}
@@ -487,7 +487,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
               exit={{ opacity: 0, y: -8 }}
               className="flex items-center gap-3"
             >
-              <div className="flex items-center gap-2 rounded-xl border border-cyan/30 bg-cyan/10 px-4 py-2.5 text-sm text-cyan">
+              <div className="flex items-center gap-2 rounded-xl border border-cyan/30 bg-card/70 px-4 py-2.5 text-sm text-cyan backdrop-blur-md">
                 <Volume2 className="size-4 animate-pulse" />
                 <span className="font-medium">AI Speaking...</span>
               </div>
@@ -507,7 +507,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
               exit={{ opacity: 0, y: -8 }}
               className="flex flex-col items-start gap-2"
             >
-              <div className="flex items-center gap-2 rounded-xl border border-violet/30 bg-violet/10 px-4 py-2.5 text-sm text-violet">
+              <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-card/70 px-4 py-2.5 text-sm text-violet backdrop-blur-md">
                 <Mic className="size-4 animate-pulse" />
                 <span className="font-medium">Listening...</span>
               </div>
@@ -547,7 +547,7 @@ export function InterviewScreen({ config, onFinish }: Props) {
       </div>
 
       {/* Controls / Inputs */}
-      <div className="space-y-3 border-t border-border pt-4">
+      <div className="space-y-3 rounded-2xl border border-border/40 bg-card/60 p-3 backdrop-blur-xl">
         <InputBar
           inputText={inputText}
           onInputChange={handleInputChange}

@@ -9,86 +9,81 @@ type AudioVisualizerProps = {
 }
 
 export function AudioVisualizer({ active, bars = 40, className }: AudioVisualizerProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const barRefs = useRef<HTMLSpanElement[]>([])
+  const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef<number | null>(null)
   const phaseRef = useRef(0)
-  const lastUpdateRef = useRef(0)
 
   useEffect(() => {
-    if (!active) {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      barRefs.current.forEach((el) => {
-        if (el) {
-          el.style.height = '8%'
-          el.style.opacity = '0.25'
-        }
-      })
-      return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const context = canvas.getContext('2d')
+    if (!context) return
+
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    let paused = document.hidden
+
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect()
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr))
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr))
+      context.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
 
-    const tick = (timestamp: number) => {
-      // Throttle to ~30fps to avoid excessive DOM updates
-      if (timestamp - lastUpdateRef.current < 33) {
-        rafRef.current = requestAnimationFrame(tick)
-        return
+    const draw = (timestamp = 0) => {
+      if (paused) return
+      const width = canvas.clientWidth
+      const height = canvas.clientHeight
+      context.clearRect(0, 0, width, height)
+      const gradient = context.createLinearGradient(0, height, 0, 0)
+      const styles = getComputedStyle(canvas)
+      gradient.addColorStop(0, styles.getPropertyValue('--cyan').trim() || 'currentColor')
+      gradient.addColorStop(1, styles.getPropertyValue('--violet').trim() || 'currentColor')
+      context.fillStyle = gradient
+
+      for (let i = 0; i < bars; i += 1) {
+        const center = 1 - Math.abs(i - bars / 2) / (bars / 2)
+        const wave = motionQuery.matches ? 0.35 : Math.sin(phaseRef.current + i * 0.55) * 0.5 + 0.5
+        const level = active ? Math.max(0.08, Math.min(1, center * (0.35 + wave * 0.5))) : 0.08
+        const barWidth = Math.max(1, (width - (bars - 1) * 3) / bars)
+        const x = i * (barWidth + 3)
+        const barHeight = level * height * 0.9
+        context.globalAlpha = active ? 0.45 + level * 0.55 : 0.25
+        context.fillRect(x, (height - barHeight) / 2, barWidth, barHeight)
       }
-      lastUpdateRef.current = timestamp
-
-      phaseRef.current += 0.18
-      const phase = phaseRef.current
-      const half = bars / 2
-
-      for (let i = 0; i < bars; i++) {
-        const el = barRefs.current[i]
-        if (!el) continue
-
-        const center = 1 - Math.abs(i - half) / half
-        const wave = Math.sin(phase + i * 0.55) * 0.5 + 0.5
-        const jitter = Math.random() * 0.35
-        const level = Math.max(0.08, Math.min(1, center * (0.35 + wave * 0.5 + jitter * 0.4)))
-
-        el.style.height = `${Math.round(level * 100)}%`
-        el.style.opacity = String(0.45 + level * 0.55)
-      }
-
-      rafRef.current = requestAnimationFrame(tick)
+      context.globalAlpha = 1
+      if (active && !motionQuery.matches) phaseRef.current += 0.12
+      rafRef.current = requestAnimationFrame(draw)
     }
 
-    rafRef.current = requestAnimationFrame(tick)
+    const stop = () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    const start = () => {
+      stop()
+      if (!paused) rafRef.current = requestAnimationFrame(draw)
+    }
+    const handleVisibility = () => {
+      paused = document.hidden
+      if (paused) stop()
+      else start()
+    }
+    const handleMotion = () => start()
+
+    resize()
+    window.addEventListener('resize', resize)
+    document.addEventListener('visibilitychange', handleVisibility)
+    motionQuery.addEventListener('change', handleMotion)
+    start()
+
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      stop()
+      window.removeEventListener('resize', resize)
+      document.removeEventListener('visibilitychange', handleVisibility)
+      motionQuery.removeEventListener('change', handleMotion)
     }
   }, [active, bars])
 
-  return (
-    <div
-      ref={containerRef}
-      className={className}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 3,
-        height: '100%',
-        width: '100%',
-      }}
-      aria-hidden="true"
-    >
-      {Array.from({ length: bars }).map((_, i) => (
-        <span
-          key={i}
-          ref={(el) => { if (el) barRefs.current[i] = el }}
-          style={{
-            width: 4,
-            height: '8%',
-            borderRadius: 999,
-            background: 'linear-gradient(to top, var(--cyan), var(--violet))',
-            opacity: active ? 0.55 : 0.25,
-            transition: 'height 90ms ease-out, opacity 90ms ease-out',
-          }}
-        />
-      ))}
-    </div>
-  )
+  return <canvas ref={canvasRef} className={className} aria-hidden="true" />
 }

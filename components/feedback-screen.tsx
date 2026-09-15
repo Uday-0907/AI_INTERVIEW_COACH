@@ -232,7 +232,7 @@ export function FeedbackScreen({
         <motion.section variants={stagger} className="grid gap-4 lg:grid-cols-[320px_1fr]">
           <motion.div
             variants={item}
-            className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-border bg-card p-6"
+            className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-border/40 bg-card/70 p-6 shadow-xl backdrop-blur-xl"
           >
             <CircularProgress value={overallScore} sublabel="Preparedness" />
             <div className={cn(
@@ -250,7 +250,7 @@ export function FeedbackScreen({
                 key={m.label}
                 variants={item}
                 whileHover={{ scale: 1.02, y: -2 }}
-                className="flex flex-col justify-between rounded-2xl border border-border bg-card p-5"
+                className="flex flex-col justify-between rounded-2xl border border-border/40 bg-card/70 p-5 shadow-lg backdrop-blur-xl"
               >
                 <p className="text-sm text-muted-foreground">{m.label}</p>
                 <div className="mt-3 flex items-end justify-between">
@@ -276,7 +276,7 @@ export function FeedbackScreen({
         </h2>
         <motion.section variants={stagger} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {/* STAR */}
-          <motion.div variants={item} className="rounded-2xl border border-border bg-card p-5">
+          <motion.div variants={item} className="rounded-2xl border border-border/40 bg-card/70 p-5 shadow-lg backdrop-blur-xl">
             <div className="mb-4 flex items-center gap-2">
               <Sparkles className="size-4 text-cyan" />
               <p className="text-sm font-semibold">STAR Framework</p>
@@ -300,7 +300,7 @@ export function FeedbackScreen({
           </motion.div>
 
           {/* Filler words */}
-          <motion.div variants={item} className="rounded-2xl border border-border bg-card p-5">
+          <motion.div variants={item} className="rounded-2xl border border-border/40 bg-card/70 p-5 shadow-lg backdrop-blur-xl">
             <div className="mb-4 flex items-center justify-between">
               <p className="text-sm font-semibold">Filler Words</p>
               <span className="font-mono text-2xl font-semibold text-warning">
@@ -330,7 +330,7 @@ export function FeedbackScreen({
           </motion.div>
 
           {/* WPM gauge */}
-          <motion.div variants={item} className="rounded-2xl border border-border bg-card p-5">
+          <motion.div variants={item} className="rounded-2xl border border-border/40 bg-card/70 p-5 shadow-lg backdrop-blur-xl">
             <div className="mb-4 flex items-center gap-2">
               <Gauge className="size-4 text-cyan" />
               <p className="text-sm font-semibold">Pacing</p>
@@ -360,7 +360,7 @@ export function FeedbackScreen({
           </motion.div>
 
           {/* Tone */}
-          <motion.div variants={item} className="rounded-2xl border border-border bg-card p-5">
+          <motion.div variants={item} className="rounded-2xl border border-border/40 bg-card/70 p-5 shadow-lg backdrop-blur-xl">
             <div className="mb-4 flex items-center gap-2">
               <Volume2 className="size-4 text-violet" />
               <p className="text-sm font-semibold">Tone Analysis</p>
@@ -425,13 +425,13 @@ function QuestionAccordion({
   const isIncomplete = q.candidateAnswer?.includes('[Response unclear') || q.candidateAnswer?.includes('incomplete')
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card">
+    <div className="overflow-hidden rounded-2xl border border-border/40 bg-card/70 shadow-lg backdrop-blur-xl">
       <motion.button
         type="button"
         whileHover={{ scale: 1.01 }}
         whileTap={{ scale: 0.99 }}
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-secondary/30"
+            className="flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-secondary/30"
         aria-expanded={open}
       >
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary font-mono text-sm text-cyan">

@@ -7,7 +7,7 @@ import { SetupScreen } from '@/components/setup-screen'
 import { InterviewScreen, type ChatMessage } from '@/components/interview-screen'
 import { FeedbackScreen } from '@/components/feedback-screen'
 import { HistoryScreen } from '@/components/history-screen'
-import { AnimatedBackground } from '@/components/animated-background'
+import { AmbientBackground } from '@/components/ui/ambient-background'
 import type { InterviewTypeId } from '@/lib/mock-data'
 
 export interface InterviewConfig {
@@ -77,8 +77,8 @@ export default function MainPage() {
   }
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-transparent">
-      <AnimatedBackground />
+    <AmbientBackground>
+      <div className="relative flex h-screen overflow-hidden bg-transparent">
 
       <AppSidebar
         screen={screen}
@@ -150,6 +150,7 @@ export default function MainPage() {
           )}
         </AnimatePresence>
       </main>
-    </div>
+      </div>
+    </AmbientBackground>
   )
 }
